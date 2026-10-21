@@ -194,6 +194,8 @@ We welcome contributions to improve the streamer! Please follow these guidelines
 
 ---
 
+Automatic Vercel Deployment is added too.
+
 ## GitHub Cheatsheet Link
 
 Need help with Git commands during development? Check out the official GitHub Git Cheatsheet:
