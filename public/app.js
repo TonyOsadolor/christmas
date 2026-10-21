@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentIndex = 0;
     let isShuffle = false;
     let lastVolume = 1;
+    let retryCount = 0;
+    const MAX_RETRIES = 2;
 
     // Repeat Modes: 'off' | 'all' | '1'
     const repeatModes = ['off', 'all', '1'];
@@ -179,7 +181,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const li = document.createElement('li');
             li.textContent = `${index + 1}. ${track.title}`;
             li.id = `track-${index}`;
-            li.addEventListener('click', () => loadAndPlayTrack(index));
+            li.addEventListener('click', () => {
+                retryCount = 0;
+                loadAndPlayTrack(index);
+            });
             playlistEl.appendChild(li);
         });
     }
@@ -205,6 +210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateNavButtons();
 
         audioPlayer.play().then(() => {
+            retryCount = 0;
             setVisualPlayingState(true);
         }).catch(err => {
             console.error("Playback execution error:", err);
@@ -212,6 +218,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             setVisualPlayingState(false);
         });
     }
+
+    // --- Mobile Stream Error Recovery ---
+    audioPlayer.addEventListener('error', () => {
+        console.warn('Audio stream interrupted or failed. Attempting recovery...');
+        if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            nowPlaying.textContent = `Reconnecting stream (${retryCount}/${MAX_RETRIES})...`;
+            setTimeout(() => {
+                audioPlayer.load();
+                audioPlayer.play().catch(e => console.error("Retry failed:", e));
+            }, 1500);
+        } else {
+            nowPlaying.textContent = `Stream error on: ${playlist[currentIndex]?.title || 'Track'}`;
+            setVisualPlayingState(false);
+        }
+    });
 
     function showAlert(title, text, icon = 'warning') {
         const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -259,6 +281,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     prevBtn.addEventListener('click', () => {
         if (playlist.length === 0) return;
+        retryCount = 0;
 
         if (isShuffle) {
             loadAndPlayTrack(Math.floor(Math.random() * playlist.length));
@@ -275,6 +298,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     nextBtn.addEventListener('click', () => {
         if (playlist.length === 0) return;
+        retryCount = 0;
 
         if (isShuffle) {
             loadAndPlayTrack(Math.floor(Math.random() * playlist.length));
@@ -292,8 +316,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Handle Auto-Advancing
     audioPlayer.addEventListener('ended', () => {
         const mode = repeatModes[currentRepeatIndex];
+        retryCount = 0;
 
-        if (mode === 'one') {
+        if (mode === '1') {
             audioPlayer.currentTime = 0;
             audioPlayer.play();
         } else if (isShuffle) {
