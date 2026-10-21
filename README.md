@@ -4,7 +4,7 @@
   </a>
 </p>
 
-<h1 align="center">Merry Christmas — Cloud Music Streamer</h1>
+<h1 align="center">Merry Christmas — Cloud Music Streamer for Christmas Songs</h1>
 
 <p align="center">
   A modern, lightweight web-based audio streaming application that converts and plays media directly from Google Drive.
