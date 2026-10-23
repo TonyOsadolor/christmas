@@ -101,12 +101,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Handle Audio Progress Bar Seeking
-    progressBar.addEventListener('input', (e) => {
-        if (!isNaN(audio.duration)) {
-            const seekTime = (progressBar.value / 100) * audio.duration;
-            audio.currentTime = seekTime;
-        }
-    });
+    if (progressBar) {
+        progressBar.addEventListener('input', (e) => {
+            if (!isNaN(audio.duration)) {
+                const seekTime = (progressBar.value / 100) * audio.duration;
+                audio.currentTime = seekTime;
+            }
+        });
+    }
 
     // --- Repeat & Shuffle Toggles ---
     repeatBtn.addEventListener('click', () => {
