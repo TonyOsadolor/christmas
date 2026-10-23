@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const artContainer = document.getElementById('art-container');
     const eqContainer = document.getElementById('eq-container');
 
+    const progressBar = document.getElementById('progress-bar');
+    const audio = document.getElementById('audio-player');
+
     let playlist = [];
     let currentIndex = 0;
     let isShuffle = false;
@@ -54,7 +57,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- Time Format Utility (Seconds -> MM:SS) ---
     function formatTime(seconds) {
-        if (isNaN(seconds) || seconds <= 0) return '00:00';
+        if (isNaN(seconds) || seconds <= 0 || !isFinite(seconds)) return '00:00';
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
@@ -96,6 +99,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             playBtn.textContent = '▶ Play';
         }
     }
+
+    // Handle Audio Progress Bar Seeking
+    progressBar.addEventListener('input', (e) => {
+        if (!isNaN(audio.duration)) {
+            const seekTime = (progressBar.value / 100) * audio.duration;
+            audio.currentTime = seekTime;
+        }
+    });
 
     // --- Repeat & Shuffle Toggles ---
     repeatBtn.addEventListener('click', () => {

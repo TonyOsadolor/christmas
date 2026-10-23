@@ -1,88 +1,122 @@
 require('dotenv').config();
 const express = require('express');
-const path = require('path');
 const { google } = require('googleapis');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegInstaller = require('ffmpeg-static');
-
-// Tell fluent-ffmpeg where the binary is located
-ffmpeg.setFfmpegPath(ffmpegInstaller);
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Serve static files from the 'public' folder
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 
-// Initialize Google Auth using JSON string from environment variable (for Vercel)
-// For local development, it can fall back to parsing your credentials string
-let authConfig = {
-    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+// Initialize Google Drive API with Service Account credentials
+const authConfig = {
+    scopes: ['https://www.googleapis.com/auth/drive.readonly']
 };
 
 if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    authConfig.credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    try {
+        authConfig.credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } catch (e) {
+        console.error("Error parsing GOOGLE_SERVICE_ACCOUNT_JSON:", e.message);
+    }
 } else {
     // Local fallback to file if running locally
     authConfig.keyFile = path.join(__dirname, 'credentials.json');
 }
 
 const auth = new google.auth.GoogleAuth(authConfig);
+
 const drive = google.drive({ version: 'v3', auth });
+const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
 // Playlist Route
 app.get('/api/playlist', async (req, res) => {
     try {
-        const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+        if (!folderId) {
+            return res.status(500).json({ error: 'GOOGLE_DRIVE_FOLDER_ID is not configured.' });
+        }
+
         const response = await drive.files.list({
             q: `'${folderId}' in parents and trashed = false`,
             fields: 'files(id, name, mimeType)',
             orderBy: 'name',
         });
 
-        const tracks = response.data.files.map((file) => ({
+        // --- Create a mutable copy using [...] so .sort() actually works ---
+        const files = [...(response.data.files || [])];
+        
+        // Sort naturally by name (01, 02, 03...)
+        files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+        const playlist = files.map(file => ({
             id: file.id,
-            title: file.name,
-            url: `/stream/${file.id}` 
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            url: `/api/stream/${file.id}`
         }));
 
-        res.json(tracks);
+        res.json(playlist);
     } catch (error) {
-        console.error('Google Drive Error:', error);
-        res.status(500).json({ error: 'Failed to load playlist', details: error.message });
+        console.error('FULL DRIVE ERROR:', error);
+        res.status(500).json({ error: 'Failed to fetch playlist', details: error.message });
     }
 });
 
-// Streaming Route
-app.get('/stream/:fileId', async (req, res) => {
+// --- API: Stream MP3 File Directly with Byte-Range Support ---
+app.get('/api/stream/:fileId', async (req, res) => {
     try {
         const fileId = req.params.fileId;
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Transfer-Encoding', 'chunked');
 
-        const driveStream = await drive.files.get(
-            { fileId: fileId, alt: 'media' },
-            { responseType: 'stream' }
-        );
+        const metaResponse = await drive.files.get({
+            fileId: fileId,
+            fields: 'size, mimeType, name'
+        });
 
-        ffmpeg(driveStream.data)
-            .audioCodec('libmp3lame')
-            .format('mp3')
-            .on('error', (err) => {
-                if (!err.message.includes('stdout: pipe:5')) {
-                    console.error('FFmpeg error:', err);
-                }
-            })
-            .pipe(res, { end: true });
+        const fileSize = parseInt(metaResponse.data.size, 10);
+        const range = req.headers.range;
 
+        if (range) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+            const chunksize = (end - start) + 1;
+
+            res.writeHead(206, {
+                'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': chunksize,
+                'Content-Type': 'audio/mpeg',
+            });
+
+            const fileStream = await drive.files.get(
+                { fileId: fileId, alt: 'media' },
+                { responseType: 'stream', headers: { Range: `bytes=${start}-${end}` } }
+            );
+
+            fileStream.data.pipe(res);
+        } else {
+            res.writeHead(200, {
+                'Content-Length': fileSize,
+                'Accept-Ranges': 'bytes',
+                'Content-Type': 'audio/mpeg',
+            });
+
+            const fileStream = await drive.files.get(
+                { fileId: fileId, alt: 'media' },
+                { responseType: 'stream' }
+            );
+
+            fileStream.data.pipe(res);
+        }
     } catch (error) {
-        console.error('Streaming error:', error);
-        res.status(500).json({ error: 'Failed to stream audio file' });
+        console.error('Error streaming file:', error);
+        if (!res.headersSent) {
+            res.status(500).send('Error streaming audio file');
+        }
     }
 });
 
-// Export app for Vercel serverless handler (do not call app.listen on Vercel)
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
-}
-
-module.exports = app;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
